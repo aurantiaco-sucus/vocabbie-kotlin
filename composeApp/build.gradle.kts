@@ -108,3 +108,9 @@ compose.desktop {
         }
     }
 }
+
+compose.resources {
+    publicResClass = true
+    packageOfResClass = "xyz.midnight233.vocabbie.resources"
+    generateResClass = always
+}
