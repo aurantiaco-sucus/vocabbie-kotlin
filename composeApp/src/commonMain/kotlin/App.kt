@@ -4,6 +4,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.runtime.*
@@ -40,7 +41,7 @@ lateinit var appMono: FontFamily
 enum class Page {
     Greeting,
     StandardGameplay,
-    
+    RecallGameplay,
     Result,
 }
 
@@ -105,8 +106,20 @@ fun RootPage() {
     Column(
         Modifier.padding(8.dp)
     ) {
-        val titleSize by animateFloatAsState(if (currentPage == Page.Greeting) 50f else 30f)
-        val subtitleSize by animateFloatAsState(if (currentPage == Page.Greeting) 60f else 30f)
+        val titleSize by animateFloatAsState(when(currentPage) {
+            Page.Greeting -> 50f
+            Page.StandardGameplay -> 30f
+            Page.RecallGameplay -> 40f
+            Page.Result -> 30f
+        })
+        val subtitleSize by animateFloatAsState(
+            when(currentPage) {
+                Page.Greeting -> 60f
+                Page.StandardGameplay -> 30f
+                Page.RecallGameplay -> 40f
+                Page.Result -> 30f
+            }
+        )
         Spacer(Modifier.height(10.dp))
         Row {
             AnimatedVisibility(currentPage != Page.Greeting) {
@@ -137,6 +150,7 @@ fun RootPage() {
                     Page.Greeting -> "Your simple\n\n\nvocabulary quiz."
                     Page.StandardGameplay -> "   What does it mean?"
                     Page.Result -> "   See your feat!"
+                    Page.RecallGameplay -> "   What's your word?"
                 },
                 fontSize = subtitleSize.sp,
                 fontFamily = appMono,
@@ -152,6 +166,7 @@ fun RootPage() {
                 Page.Greeting -> GreetingPage()
                 Page.StandardGameplay -> StandardGameplayPage()
                 Page.Result -> ResultPage()
+                Page.RecallGameplay -> RecallGameplayPage()
             }
         }
     }
@@ -203,11 +218,13 @@ fun GreetingPage() {
             }
         )
         Text(
-            text = "Binary test \uDB80\uDC54",
+            text = "Recall test \uDB80\uDC54",
             fontSize = 40.sp,
             fontFamily = appMono,
             color = MaterialTheme.colors.primary,
-            modifier = Modifier.clickable {}
+            modifier = Modifier.clickable {
+                currentPageState.value = Page.RecallGameplay
+            }
         )
     }
 }
@@ -415,5 +432,37 @@ fun ResultPage() {
                 fontFamily = appMono,
             )
         }
+    }
+}
+
+@Composable
+fun RecallGameplayPage() {
+    Box(
+        Modifier.fillMaxSize()
+            .padding(top = 20.dp, bottom = 100.dp, start = 100.dp, end = 100.dp)
+    ) {
+        Text(
+            text = "mörön",
+            fontSize = 80.sp,
+            fontFamily = appSans,
+            color = Color.Black,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+        Text(
+            text = "\uf118",
+            fontSize = 160.sp,
+            fontFamily = appMono,
+            color = MaterialTheme.colors.primary,
+            modifier = Modifier.align(Alignment.BottomStart)
+                .clickable {  }
+        )
+        Text(
+            text = "\uf119",
+            fontSize = 160.sp,
+            fontFamily = appMono,
+            color = MaterialTheme.colors.primary,
+            modifier = Modifier.align(Alignment.BottomEnd)
+                .clickable {  }
+        )
     }
 }
