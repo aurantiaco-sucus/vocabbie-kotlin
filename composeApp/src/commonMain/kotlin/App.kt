@@ -1,20 +1,16 @@
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,12 +29,18 @@ import xyz.midnight233.vocabbie.resources.CascadiaCodeNF
 import xyz.midnight233.vocabbie.resources.MiSans_Regular
 import xyz.midnight233.vocabbie.resources.Res
 
+val targetHost = when(getPlatform()::class.simpleName) {
+    "AndroidPlatform" -> "10.0.2.2:8000"
+    else -> "localhost:8000"
+}
+
 lateinit var appSans: FontFamily
 lateinit var appMono: FontFamily
 
 enum class Page {
     Greeting,
     StandardGameplay,
+    
     Result,
 }
 
@@ -62,7 +64,7 @@ data class Results(
     val rfwls: Int
 )
 
-lateinit var results: MutableState<Results>
+lateinit var resultsState: MutableState<Results>
 
 val httpClient = HttpClient {
     install(ContentNegotiation) {
@@ -78,6 +80,7 @@ fun App() {
     sessionIdState = remember { mutableStateOf("0") }
     standardGameplayState = remember { mutableStateOf(StandardGameplayState(
         false, "", listOf(), 0)) }
+    resultsState = remember { mutableStateOf(Results(0, 0)) }
 
     MaterialTheme {
         Box(
@@ -106,7 +109,7 @@ fun RootPage() {
         val subtitleSize by animateFloatAsState(if (currentPage == Page.Greeting) 60f else 30f)
         Spacer(Modifier.height(10.dp))
         Row {
-            AnimatedVisibility(currentPage == Page.StandardGameplay) {
+            AnimatedVisibility(currentPage != Page.Greeting) {
                 Text(
                     text = " \udb80\udc4d ",
                     fontSize = titleSize.sp,
@@ -133,7 +136,7 @@ fun RootPage() {
                 text = when (it) {
                     Page.Greeting -> "Your simple\n\n\nvocabulary quiz."
                     Page.StandardGameplay -> "   What does it mean?"
-                    Page.Result -> "See your feat!"
+                    Page.Result -> "   See your feat!"
                 },
                 fontSize = subtitleSize.sp,
                 fontFamily = appMono,
@@ -213,7 +216,7 @@ suspend fun launchStandardSession() {
     var currentPage by currentPageState
     var sessionId by sessionIdState
     var standardGameplayState by standardGameplayState
-    val rStart = httpClient.post("http://localhost:8000/start") {
+    val rStart = httpClient.post("http://$targetHost/start") {
         contentType(ContentType.Application.Json)
         setBody(Message(0, hashMapOf("kind" to "standard")))
     }.body<Message>()
@@ -223,7 +226,7 @@ suspend fun launchStandardSession() {
     }
     println("New standard session ID is ${rStart.session}")
     sessionId = rStart.session.toString()
-    val rState = httpClient.post("http://localhost:8000/state") {
+    val rState = httpClient.post("http://$targetHost/state") {
         contentType(ContentType.Application.Json)
         setBody(Message(sessionId.toLong(), hashMapOf()))
     }.body<Message>()
@@ -299,9 +302,9 @@ fun StandardGameplayPage() {
                 fontSize = 30.sp,
                 fontFamily = appMono,
                 color = MaterialTheme.colors.primary,
-                modifier = Modifier.padding(start = 20.dp).clickable {
-                    currentPageState.value = Page.Result
-                }
+                modifier = Modifier.padding(start = 20.dp).clickable { coroutineScope.launch {
+                    finishStandardSession()
+                } }
             )
             Spacer(Modifier.height(10.dp))
         }
@@ -312,7 +315,7 @@ suspend fun updateStandardSession(tintState: MutableState<Pair<Int, Boolean>?>) 
     val sessionId by sessionIdState
     var state by standardGameplayState
     var tint by tintState
-    val rSubmit = httpClient.post("http://localhost:8000/submit") {
+    val rSubmit = httpClient.post("http://$targetHost/submit") {
         contentType(ContentType.Application.Json)
         setBody(Message(sessionId.toLong(), hashMapOf(
             "action" to "choose",
@@ -328,7 +331,7 @@ suspend fun updateStandardSession(tintState: MutableState<Pair<Int, Boolean>?>) 
     delay(500)
     tint = null
     delay(250)
-    val rState = httpClient.post("http://localhost:8000/state") {
+    val rState = httpClient.post("http://$targetHost/state") {
         contentType(ContentType.Application.Json)
         setBody(Message(sessionId.toLong(), hashMapOf()))
     }.body<Message>()
@@ -341,18 +344,76 @@ suspend fun updateStandardSession(tintState: MutableState<Pair<Int, Boolean>?>) 
 }
 
 suspend fun finishStandardSession() {
+    var currentPage by currentPageState
     val sessionId by sessionIdState
-    val rFinish = httpClient.post("http://localhost:8000/finish") {
+    var results by resultsState
+    val rFinish = httpClient.post("http://$targetHost/submit") {
         contentType(ContentType.Application.Json)
-        setBody(Message(sessionId.toLong(), hashMapOf()))
+        setBody(Message(sessionId.toLong(), hashMapOf("action" to "finish")))
     }.body<Message>()
     println("Session $sessionId finished.")
-
+    results = Results(
+        rFinish.details["uls"]!!.toInt(),
+        rFinish.details["rfwls"]!!.toInt()
+    )
+    currentPage = Page.Result
 }
 
 @Composable
 fun ResultPage() {
-    Column {
-
+    val results by resultsState
+    Column(
+        Modifier.padding(horizontal = 20.dp)
+    ) {
+        Spacer(Modifier.height(20.dp))
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        )  {
+            Column {
+                Text(
+                    text = "ULS",
+                    fontSize = 40.sp,
+                    fontFamily = appMono,
+                )
+                Text(
+                    text = "Uniform Leveled Scaling",
+                    fontSize = 16.sp,
+                    fontFamily = appSans,
+                )
+            }
+            Text(
+                text = results.uls.toString(),
+                fontSize = 60.sp,
+                color = MaterialTheme.colors.primaryVariant,
+                fontFamily = appMono,
+            )
+        }
+        Spacer(Modifier.height(40.dp))
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column {
+                Text(
+                    text = "RFWLS",
+                    fontSize = 40.sp,
+                    fontFamily = appMono,
+                )
+                Text(
+                    text = "Reciprocal Frequency \nWeighted Leveled Scaling",
+                    fontSize = 16.sp,
+                    fontFamily = appSans,
+                )
+            }
+            Text(
+                text = results.rfwls.toString(),
+                fontSize = 60.sp,
+                color = MaterialTheme.colors.primaryVariant,
+                fontFamily = appMono,
+            )
+        }
     }
 }

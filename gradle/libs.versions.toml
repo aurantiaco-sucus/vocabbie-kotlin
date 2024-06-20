@@ -42,6 +42,7 @@ ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-conte
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor-client" }
 
 ktor-client-java = { group = "io.ktor", name = "ktor-client-java", version.ref = "ktor-client" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor-client" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
