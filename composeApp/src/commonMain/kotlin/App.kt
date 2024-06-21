@@ -4,13 +4,14 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -67,6 +68,13 @@ data class Results(
 
 lateinit var resultsState: MutableState<Results>
 
+data class RecallGameplayState(
+    val result_available: Boolean,
+    val question: String,
+)
+
+lateinit var recallGameplayState: MutableState<RecallGameplayState>
+
 val httpClient = HttpClient {
     install(ContentNegotiation) {
         json()
@@ -82,6 +90,7 @@ fun App() {
     standardGameplayState = remember { mutableStateOf(StandardGameplayState(
         false, "", listOf(), 0)) }
     resultsState = remember { mutableStateOf(Results(0, 0)) }
+    recallGameplayState = remember { mutableStateOf(RecallGameplayState(false, "")) }
 
     MaterialTheme {
         Box(
@@ -223,7 +232,9 @@ fun GreetingPage() {
             fontFamily = appMono,
             color = MaterialTheme.colors.primary,
             modifier = Modifier.clickable {
-                currentPageState.value = Page.RecallGameplay
+                coroutineScope.launch {
+                    launchRecallSession()
+                }
             }
         )
     }
@@ -255,6 +266,32 @@ suspend fun launchStandardSession() {
     )
     standardGameplayState = state
     currentPage = Page.StandardGameplay
+}
+
+suspend fun launchRecallSession() {
+    var currentPage by currentPageState
+    var sessionId by sessionIdState
+    var recallGameplayState by recallGameplayState
+    val rStart = httpClient.post("http://$targetHost/start") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(0, hashMapOf("kind" to "recall")))
+    }.body<Message>()
+    if (rStart.session == 0L) {
+        println("Failed to start a session.")
+        return
+    }
+    println("New standard session ID is ${rStart.session}")
+    sessionId = rStart.session.toString()
+    val rState = httpClient.post("http://$targetHost/state") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(sessionId.toLong(), hashMapOf()))
+    }.body<Message>()
+    val state = RecallGameplayState(
+        result_available = rState.details["result_available"]!!.toBoolean(),
+        question = rState.details["question"]!!
+    )
+    recallGameplayState = state
+    currentPage = Page.RecallGameplay
 }
 
 @Composable
@@ -320,7 +357,7 @@ fun StandardGameplayPage() {
                 fontFamily = appMono,
                 color = MaterialTheme.colors.primary,
                 modifier = Modifier.padding(start = 20.dp).clickable { coroutineScope.launch {
-                    finishStandardSession()
+                    finishSession()
                 } }
             )
             Spacer(Modifier.height(10.dp))
@@ -360,7 +397,7 @@ suspend fun updateStandardSession(tintState: MutableState<Pair<Int, Boolean>?>) 
     )
 }
 
-suspend fun finishStandardSession() {
+suspend fun finishSession() {
     var currentPage by currentPageState
     val sessionId by sessionIdState
     var results by resultsState
@@ -435,34 +472,93 @@ fun ResultPage() {
     }
 }
 
+val theSuspiciousWord = "mörön"
+
 @Composable
 fun RecallGameplayPage() {
     Box(
         Modifier.fillMaxSize()
-            .padding(top = 20.dp, bottom = 100.dp, start = 100.dp, end = 100.dp)
+            .padding(top = 20.dp, bottom = 60.dp, start = 20.dp, end = 20.dp)
     ) {
-        Text(
-            text = "mörön",
-            fontSize = 80.sp,
-            fontFamily = appSans,
-            color = Color.Black,
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
-        Text(
-            text = "\uf118",
-            fontSize = 160.sp,
-            fontFamily = appMono,
-            color = MaterialTheme.colors.primary,
-            modifier = Modifier.align(Alignment.BottomStart)
-                .clickable {  }
-        )
-        Text(
-            text = "\uf119",
-            fontSize = 160.sp,
-            fontFamily = appMono,
-            color = MaterialTheme.colors.primary,
-            modifier = Modifier.align(Alignment.BottomEnd)
-                .clickable {  }
-        )
+        val recallGameplayState by recallGameplayState
+        val exitButtonShade by animateFloatAsState(
+            if (recallGameplayState.result_available) 1f else 0f)
+        val exitButtonScale by animateFloatAsState(
+            if (recallGameplayState.result_available) 0.75f else 2f)
+        val coroutineScope = rememberCoroutineScope()
+        AnimatedContent(
+            targetState = recallGameplayState,
+            transitionSpec = { (slideInHorizontally { x -> x } + fadeIn())
+                .togetherWith(slideOutHorizontally { x -> -x } + fadeOut()) },
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+        ) {
+            Box {
+                Text(
+                    text = it.question,
+                    fontSize = 80.sp,
+                    fontFamily = appSans,
+                    color = Color.Black,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
+        Row(
+            Modifier.align(Alignment.BottomCenter)
+        ) {
+            Text(
+                text = "\uf118",
+                fontSize = 160.sp,
+                fontFamily = appMono,
+                color = MaterialTheme.colors.primary,
+                modifier = Modifier.clickable {
+                    coroutineScope.launch {
+                        updateRecallSession(true)
+                    }
+                }
+            )
+            Text(
+                text = " \udb82\ude48 ",
+                fontSize = 160.sp,
+                fontFamily = appMono,
+                color = MaterialTheme.colors.primaryVariant,
+                modifier = Modifier.alpha(exitButtonShade).scale(exitButtonScale).clickable {
+                    coroutineScope.launch {
+                        finishSession()
+                    }
+                }
+            )
+            Text(
+                text = "\uf119",
+                fontSize = 160.sp,
+                fontFamily = appMono,
+                color = MaterialTheme.colors.primary,
+                modifier = Modifier.clickable {
+                    coroutineScope.launch {
+                        updateRecallSession(false)
+                    }
+                }
+            )
+        }
     }
+}
+
+
+suspend fun updateRecallSession(recall: Boolean) {
+    val sessionId by sessionIdState
+    var state by recallGameplayState
+    httpClient.post("http://$targetHost/submit") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(sessionId.toLong(), hashMapOf(
+            "action" to "choose",
+            "recall" to recall.toString()
+        )))
+    }
+    val rState = httpClient.post("http://$targetHost/state") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(sessionId.toLong(), hashMapOf()))
+    }.body<Message>()
+    state = RecallGameplayState(
+        result_available = rState.details["result_available"]!!.toBoolean(),
+        question = rState.details["question"]!!,
+    )
 }
