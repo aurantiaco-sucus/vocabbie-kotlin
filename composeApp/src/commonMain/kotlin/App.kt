@@ -62,8 +62,10 @@ data class StandardGameplayState(
 lateinit var standardGameplayState: MutableState<StandardGameplayState>
 
 data class Results(
-    val uls: Int,
-    val rfwls: Int
+    val uls: Int? = null,
+    val rfwls: Int? = null,
+    val mle: Int? = null,
+    val tyv: Int? = null,
 )
 
 lateinit var resultsState: MutableState<Results>
@@ -89,7 +91,7 @@ fun App() {
     sessionIdState = remember { mutableStateOf("0") }
     standardGameplayState = remember { mutableStateOf(StandardGameplayState(
         false, "", listOf(), 0)) }
-    resultsState = remember { mutableStateOf(Results(0, 0)) }
+    resultsState = remember { mutableStateOf(Results()) }
     recallGameplayState = remember { mutableStateOf(RecallGameplayState(false, "")) }
 
     MaterialTheme {
@@ -215,8 +217,9 @@ data class Message(
 fun GreetingPage() {
     val coroutineScope = rememberCoroutineScope()
     Column {
+        Spacer(Modifier.height(15.dp))
         Text(
-            text = "Standard quiz \uDB80\uDC54",
+            text = "Standard word quiz \uDB80\uDC54",
             fontSize = 40.sp,
             fontFamily = appMono,
             color = MaterialTheme.colors.primary,
@@ -226,14 +229,27 @@ fun GreetingPage() {
                 }
             }
         )
+        Spacer(Modifier.height(10.dp))
         Text(
-            text = "Recall test \uDB80\uDC54",
+            text = "Binary recall test \uDB80\uDC54",
             fontSize = 40.sp,
             fontFamily = appMono,
             color = MaterialTheme.colors.primary,
             modifier = Modifier.clickable {
                 coroutineScope.launch {
                     launchRecallSession()
+                }
+            }
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "Test-Your-Vocabulary \uDB80\uDC54",
+            fontSize = 40.sp,
+            fontFamily = appMono,
+            color = MaterialTheme.colors.primary,
+            modifier = Modifier.clickable {
+                coroutineScope.launch {
+                    launchTyvRecallSession()
                 }
             }
         )
@@ -275,6 +291,33 @@ suspend fun launchRecallSession() {
     val rStart = httpClient.post("http://$targetHost/start") {
         contentType(ContentType.Application.Json)
         setBody(Message(0, hashMapOf("kind" to "recall")))
+    }.body<Message>()
+    if (rStart.session == 0L) {
+        println("Failed to start a session.")
+        return
+    }
+    println("New standard session ID is ${rStart.session}")
+    sessionId = rStart.session.toString()
+    val rState = httpClient.post("http://$targetHost/state") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(sessionId.toLong(), hashMapOf()))
+    }.body<Message>()
+    val state = RecallGameplayState(
+        result_available = rState.details["result_available"]!!.toBoolean(),
+        question = rState.details["question"]!!
+    )
+    recallGameplayState = state
+    currentPage = Page.RecallGameplay
+}
+
+
+suspend fun launchTyvRecallSession() {
+    var currentPage by currentPageState
+    var sessionId by sessionIdState
+    var recallGameplayState by recallGameplayState
+    val rStart = httpClient.post("http://$targetHost/start") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(0, hashMapOf("kind" to "recall-tyv")))
     }.body<Message>()
     if (rStart.session == 0L) {
         println("Failed to start a session.")
@@ -407,8 +450,10 @@ suspend fun finishSession() {
     }.body<Message>()
     println("Session $sessionId finished.")
     results = Results(
-        rFinish.details["uls"]!!.toInt(),
-        rFinish.details["rfwls"]!!.toInt()
+        uls = rFinish.details["uls"]?.toInt(),
+        rfwls = rFinish.details["rfwls"]?.toInt(),
+        mle = rFinish.details["mle"]?.toInt(),
+        tyv = rFinish.details["tyv"]?.toInt(),
     )
     currentPage = Page.Result
 }
@@ -419,56 +464,51 @@ fun ResultPage() {
     Column(
         Modifier.padding(horizontal = 20.dp)
     ) {
-        Spacer(Modifier.height(20.dp))
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        )  {
-            Column {
-                Text(
-                    text = "ULS",
-                    fontSize = 40.sp,
-                    fontFamily = appMono,
-                )
-                Text(
-                    text = "Uniform Leveled Scaling",
-                    fontSize = 16.sp,
-                    fontFamily = appSans,
-                )
-            }
+        if (results.uls != null) {
+            Spacer(Modifier.height(40.dp))
+            ResultPageEntry("UniLS", "Uniform Leveled Scaling", results.uls!!)
+        }
+        if (results.rfwls != null) {
+            Spacer(Modifier.height(40.dp))
+            ResultPageEntry("ReFLS", "Reciprocal Frequency \nWeighted Leveled Scaling", results.rfwls!!)
+        }
+        if (results.rfwls != null) {
+            Spacer(Modifier.height(40.dp))
+            ResultPageEntry("F-MLE", "Frequency-scaled \nMaximum Likelihood Estimation", results.rfwls!!)
+        }
+        if (results.tyv != null) {
+            Spacer(Modifier.height(40.dp))
+            ResultPageEntry("ML-TYV",
+                "Machine learning based \nmimicry of Test-Your-Vocab scoring", results.tyv!!)
+        }
+    }
+}
+
+@Composable
+fun ResultPageEntry(abbr: String, desc: String, value: Int) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
             Text(
-                text = results.uls.toString(),
-                fontSize = 60.sp,
-                color = MaterialTheme.colors.primaryVariant,
+                text = abbr,
+                fontSize = 40.sp,
                 fontFamily = appMono,
             )
-        }
-        Spacer(Modifier.height(40.dp))
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column {
-                Text(
-                    text = "RFWLS",
-                    fontSize = 40.sp,
-                    fontFamily = appMono,
-                )
-                Text(
-                    text = "Reciprocal Frequency \nWeighted Leveled Scaling",
-                    fontSize = 16.sp,
-                    fontFamily = appSans,
-                )
-            }
             Text(
-                text = results.rfwls.toString(),
-                fontSize = 60.sp,
-                color = MaterialTheme.colors.primaryVariant,
-                fontFamily = appMono,
+                text = desc,
+                fontSize = 16.sp,
+                fontFamily = appSans,
             )
         }
+        Text(
+            text = value.toString(),
+            fontSize = 60.sp,
+            color = MaterialTheme.colors.primaryVariant,
+            fontFamily = appMono,
+        )
     }
 }
 
