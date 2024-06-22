@@ -64,7 +64,7 @@ lateinit var standardGameplayState: MutableState<StandardGameplayState>
 data class Results(
     val uls: Int? = null,
     val rfwls: Int? = null,
-    val mle: Int? = null,
+    val heu: Int? = null,
     val tyv: Int? = null,
 )
 
@@ -452,7 +452,7 @@ suspend fun finishSession() {
     results = Results(
         uls = rFinish.details["uls"]?.toInt(),
         rfwls = rFinish.details["rfwls"]?.toInt(),
-        mle = rFinish.details["mle"]?.toInt(),
+        heu = rFinish.details["heu"]?.toInt(),
         tyv = rFinish.details["tyv"]?.toInt(),
     )
     currentPage = Page.Result
@@ -472,9 +472,9 @@ fun ResultPage() {
             Spacer(Modifier.height(40.dp))
             ResultPageEntry("ReFLS", "Reciprocal Frequency \nWeighted Leveled Scaling", results.rfwls!!)
         }
-        if (results.rfwls != null) {
+        if (results.heu != null) {
             Spacer(Modifier.height(40.dp))
-            ResultPageEntry("F-MLE", "Frequency-scaled \nMaximum Likelihood Estimation", results.rfwls!!)
+            ResultPageEntry("L-HEU", "Leveled Heuristic Estimation", results.heu!!)
         }
         if (results.tyv != null) {
             Spacer(Modifier.height(40.dp))
