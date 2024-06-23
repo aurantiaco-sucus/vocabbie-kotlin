@@ -474,7 +474,7 @@ fun ResultPage() {
         }
         if (results.heu != null) {
             Spacer(Modifier.height(40.dp))
-            ResultPageEntry("L-HEU", "Leveled Heuristic Estimation", results.heu!!)
+            ResultPageEntry("C-HEU", "Centroid-based\nHeuristic Estimation", results.heu!!)
         }
         if (results.tyv != null) {
             Spacer(Modifier.height(40.dp))
