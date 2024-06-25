@@ -535,7 +535,7 @@ fun ResultPage() {
         }
         if (results.heu != null) {
             Spacer(Modifier.height(40.dp))
-            ResultPageEntry("C-HEU", "Centroid-based\nHeuristic Estimation", results.heu!!)
+            ResultPageEntry("ReHEU", "Reciprocal Heuristic Estimation", results.heu!!)
         }
         if (results.tyv != null) {
             Spacer(Modifier.height(40.dp))
@@ -805,11 +805,14 @@ fun MassRecallGameplayPage() {
 suspend fun updateMassRecallSession() {
     val sessionId by sessionIdState
     var state by massRecallGameplayState
+    val choices = state.choices
+        .map { if (state.inverted) !it else it }
+        .joinToString(separator = ",")
     httpClient.post("http://$targetHost/submit") {
         contentType(ContentType.Application.Json)
         setBody(Message(sessionId.toLong(), hashMapOf(
             "action" to "choose",
-            "choices" to state.choices.joinToString(separator = ","),
+            "choices" to choices,
         )))
     }
     val rState = httpClient.post("http://$targetHost/state") {
