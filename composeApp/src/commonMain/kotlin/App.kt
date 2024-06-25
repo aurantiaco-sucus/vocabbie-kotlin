@@ -1,8 +1,7 @@
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
@@ -12,7 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +44,7 @@ enum class Page {
     Greeting,
     StandardGameplay,
     RecallGameplay,
+    MassRecallGameplay,
     Result,
 }
 
@@ -77,6 +79,15 @@ data class RecallGameplayState(
 
 lateinit var recallGameplayState: MutableState<RecallGameplayState>
 
+data class MassRecallGameplayState(
+    val result_available: Boolean,
+    val inverted: Boolean,
+    val questions: List<String>,
+    val choices: List<Boolean>,
+)
+
+lateinit var massRecallGameplayState: MutableState<MassRecallGameplayState>
+
 val httpClient = HttpClient {
     install(ContentNegotiation) {
         json()
@@ -87,12 +98,16 @@ val httpClient = HttpClient {
 fun App() {
     appSans = FontFamily(Font(Res.font.MiSans_Regular))
     appMono = FontFamily(Font(Res.font.CascadiaCodeNF))
-    currentPageState = remember { mutableStateOf(Page.Greeting) }
+    currentPageState = remember { mutableStateOf(Page.MassRecallGameplay) }
     sessionIdState = remember { mutableStateOf("0") }
     standardGameplayState = remember { mutableStateOf(StandardGameplayState(
-        false, "", listOf(), 0)) }
+        false, "", listOf(), 0
+    )) }
     resultsState = remember { mutableStateOf(Results()) }
     recallGameplayState = remember { mutableStateOf(RecallGameplayState(false, "")) }
+    massRecallGameplayState = remember { mutableStateOf(MassRecallGameplayState(
+        false, false, listOf(), listOf()
+    )) }
 
     MaterialTheme {
         Box(
@@ -121,6 +136,7 @@ fun RootPage() {
             Page.Greeting -> 50f
             Page.StandardGameplay -> 30f
             Page.RecallGameplay -> 40f
+            Page.MassRecallGameplay -> 30f
             Page.Result -> 30f
         })
         val subtitleSize by animateFloatAsState(
@@ -128,6 +144,7 @@ fun RootPage() {
                 Page.Greeting -> 60f
                 Page.StandardGameplay -> 30f
                 Page.RecallGameplay -> 40f
+                Page.MassRecallGameplay -> 40f
                 Page.Result -> 30f
             }
         )
@@ -161,7 +178,8 @@ fun RootPage() {
                     Page.Greeting -> "Your simple\n\n\nvocabulary quiz."
                     Page.StandardGameplay -> "   What does it mean?"
                     Page.Result -> "   See your feat!"
-                    Page.RecallGameplay -> "   What's your word?"
+                    Page.RecallGameplay -> "   Do you recall it?"
+                    Page.MassRecallGameplay -> "   Do you recall them?"
                 },
                 fontSize = subtitleSize.sp,
                 fontFamily = appMono,
@@ -176,8 +194,9 @@ fun RootPage() {
             when (it) {
                 Page.Greeting -> GreetingPage()
                 Page.StandardGameplay -> StandardGameplayPage()
-                Page.Result -> ResultPage()
                 Page.RecallGameplay -> RecallGameplayPage()
+                Page.MassRecallGameplay -> MassRecallGameplayPage()
+                Page.Result -> ResultPage()
             }
         }
     }
@@ -335,6 +354,34 @@ suspend fun launchTyvRecallSession() {
     )
     recallGameplayState = state
     currentPage = Page.RecallGameplay
+}
+
+suspend fun launchMassRecallSession() {
+    var currentPage by currentPageState
+    var sessionId by sessionIdState
+    var gameplayState by massRecallGameplayState
+    val rStart = httpClient.post("http://$targetHost/start") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(0, hashMapOf("kind" to "recall-mass")))
+    }.body<Message>()
+    if (rStart.session == 0L) {
+        println("Failed to start a session.")
+        return
+    }
+    println("New standard session ID is ${rStart.session}")
+    sessionId = rStart.session.toString()
+    val rState = httpClient.post("http://$targetHost/state") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(sessionId.toLong(), hashMapOf()))
+    }.body<Message>()
+    val questions = rState.details["questions"]!!.split(";;;")
+    gameplayState = MassRecallGameplayState(
+        result_available = rState.details["result_available"]!!.toBoolean(),
+        inverted = false,
+        questions = questions,
+        choices = List(questions.size) { false }
+    )
+    currentPage = Page.MassRecallGameplay
 }
 
 @Composable
@@ -582,7 +629,6 @@ fun RecallGameplayPage() {
     }
 }
 
-
 suspend fun updateRecallSession(recall: Boolean) {
     val sessionId by sessionIdState
     var state by recallGameplayState
@@ -600,5 +646,159 @@ suspend fun updateRecallSession(recall: Boolean) {
     state = RecallGameplayState(
         result_available = rState.details["result_available"]!!.toBoolean(),
         question = rState.details["question"]!!,
+    )
+}
+
+lateinit var massRecallGameplayPageCurtain: MutableState<Boolean>
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun MassRecallGameplayPage() {
+    massRecallGameplayPageCurtain = remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    var gameplayState by massRecallGameplayState
+    var curtain by massRecallGameplayPageCurtain
+    val pageAlpha by animateFloatAsState(if (curtain) 0.0f else 1.0f)
+    val coroutineScope = rememberCoroutineScope()
+    Box(Modifier.padding(bottom = 36.dp)) {
+        Box(Modifier.fillMaxSize().alpha(pageAlpha)) {
+            AnimatedVisibility(
+                visible = scrollState.canScrollBackward,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.TopStart)
+            ) {
+                Canvas(Modifier.fillMaxWidth().height(40.dp)) {
+                    val brush = Brush.verticalGradient(listOf(
+                        Color.Black.copy(alpha = 0.125f),
+                        Color.White,
+                    ))
+                    drawRect(
+                        topLeft = Offset(-5.0f, 0.0f),
+                        size = Size(size.width + 10.0f, size.height),
+                        brush = brush
+                    )
+                }
+            }
+        }
+        Box(Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = scrollState.canScrollForward,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomStart)
+            ) {
+                Canvas(Modifier.fillMaxWidth().height(40.dp)) {
+                    val brush = Brush.verticalGradient(listOf(
+                        Color.White,
+                        Color.Black.copy(alpha = 0.125f),
+                    ))
+                    drawRect(
+                        topLeft = Offset(-5.0f, 0.0f),
+                        size = Size(size.width + 10.0f, size.height),
+                        brush = brush
+                    )
+                }
+            }
+        }
+        Column(
+            Modifier.padding(horizontal = 20.dp)
+                .verticalScroll(scrollState)
+        ) {
+            val invertButtonColor by animateColorAsState(
+                if (gameplayState.inverted) MaterialTheme.colors.primary else Color.Black)
+            Box(Modifier.clip(RoundedCornerShape(25)).clickable {
+                gameplayState = gameplayState.copy(inverted = !gameplayState.inverted)
+            }) {
+                val checkbox = if (gameplayState.inverted) "\udb80\udd35" else "\udb80\udd31"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = checkbox,
+                        fontFamily = appMono,
+                        fontSize = 40.sp,
+                        color = invertButtonColor
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    Text(
+                        text = "I choose what I don't know!",
+                        fontFamily = appMono,
+                        fontSize = 24.sp,
+                        color = invertButtonColor
+                    )
+                    Spacer(Modifier.width(10.dp))
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            FlowRow {
+                repeat(50) {
+                    listOf("short", "meeeedium", "looooooooong").forEach {
+                        Text(
+                            text = it,
+                            fontFamily = appSans,
+                            fontSize = 20.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                .clickable {  }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                TextButton(
+                    onClick = { coroutineScope.launch {
+                        curtain = true
+                        delay(100)
+                        updateMassRecallSession()
+                        curtain = false
+                        delay(100)
+                    } }
+                ) {
+                    Text(
+                        text = "Continue",
+                        fontSize = 30.sp,
+                        fontFamily = appMono
+                    )
+                }
+                if (gameplayState.result_available) TextButton(
+                    onClick = { coroutineScope.launch {
+                        finishSession()
+                    } }
+                ) {
+                    Text(
+                        text = "Finish",
+                        fontSize = 30.sp,
+                        fontFamily = appMono
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+suspend fun updateMassRecallSession() {
+    val sessionId by sessionIdState
+    var state by massRecallGameplayState
+    httpClient.post("http://$targetHost/submit") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(sessionId.toLong(), hashMapOf(
+            "action" to "choose",
+            "choices" to state.choices.joinToString(separator = ","),
+        )))
+    }
+    val rState = httpClient.post("http://$targetHost/state") {
+        contentType(ContentType.Application.Json)
+        setBody(Message(sessionId.toLong(), hashMapOf()))
+    }.body<Message>()
+    val questions = rState.details["questions"]!!.split(";;;")
+    state = MassRecallGameplayState(
+        result_available = rState.details["result_available"]!!.toBoolean(),
+        inverted = state.inverted,
+        questions = questions,
+        choices = List(questions.size) { false }
     )
 }
