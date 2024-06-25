@@ -1,5 +1,6 @@
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -15,6 +16,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEachIndexed
@@ -83,7 +85,7 @@ data class MassRecallGameplayState(
     val result_available: Boolean,
     val inverted: Boolean,
     val questions: List<String>,
-    val choices: List<Boolean>,
+    var choices: List<Boolean>,
 )
 
 lateinit var massRecallGameplayState: MutableState<MassRecallGameplayState>
@@ -98,7 +100,7 @@ val httpClient = HttpClient {
 fun App() {
     appSans = FontFamily(Font(Res.font.MiSans_Regular))
     appMono = FontFamily(Font(Res.font.CascadiaCodeNF))
-    currentPageState = remember { mutableStateOf(Page.MassRecallGameplay) }
+    currentPageState = remember { mutableStateOf(Page.Greeting) }
     sessionIdState = remember { mutableStateOf("0") }
     standardGameplayState = remember { mutableStateOf(StandardGameplayState(
         false, "", listOf(), 0
@@ -269,6 +271,18 @@ fun GreetingPage() {
             modifier = Modifier.clickable {
                 coroutineScope.launch {
                     launchTyvRecallSession()
+                }
+            }
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "Skimming recall test \uDB80\uDC54",
+            fontSize = 40.sp,
+            fontFamily = appMono,
+            color = MaterialTheme.colors.primary,
+            modifier = Modifier.clickable {
+                coroutineScope.launch {
+                    launchMassRecallSession()
                 }
             }
         )
@@ -731,16 +745,24 @@ fun MassRecallGameplayPage() {
             }
             Spacer(Modifier.height(10.dp))
             FlowRow {
-                repeat(50) {
-                    listOf("short", "meeeedium", "looooooooong").forEach {
-                        Text(
-                            text = it,
-                            fontFamily = appSans,
-                            fontSize = 20.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                .clickable {  }
-                        )
-                    }
+                gameplayState.questions.indices.forEach { i ->
+                    val weight by animateIntAsState(
+                        if (gameplayState.choices[i]) FontWeight.Bold.weight else FontWeight.Normal.weight
+                    )
+                    Text(
+                        text = gameplayState.questions[i],
+                        fontFamily = appSans,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight(weight),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            .clickable {
+                                gameplayState = gameplayState.copy(
+                                    choices = gameplayState.choices.toMutableList().apply {
+                                        this[i] = !this[i]
+                                    }
+                                )
+                            }
+                    )
                 }
             }
             Spacer(Modifier.height(10.dp))
